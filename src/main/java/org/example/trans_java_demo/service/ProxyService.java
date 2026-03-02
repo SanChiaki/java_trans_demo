@@ -193,7 +193,9 @@ public class ProxyService {
     private boolean shouldForwardResponseHeader(String headerName) {
         String lowerName = headerName.toLowerCase();
         return !lowerName.equals("transfer-encoding")
-                && !lowerName.equals("connection");
+                && !lowerName.equals("connection")
+                && !lowerName.equals("content-encoding")
+                && !lowerName.equals("content-length");
     }
 
     public static class StreamResponse {
