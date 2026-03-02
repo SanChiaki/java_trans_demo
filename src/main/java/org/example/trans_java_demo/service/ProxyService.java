@@ -192,8 +192,7 @@ public class ProxyService {
         String lowerName = headerName.toLowerCase();
         return !lowerName.equals("transfer-encoding")
                 && !lowerName.equals("connection")
-                && !lowerName.equals("content-encoding")
-                && !lowerName.equals("content-length");
+                && !lowerName.startsWith("access-control-");
     }
 
     public static class StreamResponse {
