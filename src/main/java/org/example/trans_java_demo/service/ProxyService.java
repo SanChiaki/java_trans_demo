@@ -58,7 +58,7 @@ public class ProxyService {
         }
     }
 
-    public ResponseEntity<byte[]> forwardRequest(HttpServletRequest request, String body) {
+    public ResponseEntity<byte[]> forwardRequest(HttpServletRequest request, byte[] body) {
         try {
             String targetUrl = getTargetUrl(request);
             HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
@@ -68,24 +68,26 @@ public class ProxyService {
             addHeaders(requestBuilder, request);
 
             String method = request.getMethod().toUpperCase();
+            byte[] requestBody = body != null ? body : new byte[0];
             switch (method) {
                 case "GET":
                     requestBuilder.GET();
                     break;
                 case "POST":
-                    requestBuilder.POST(HttpRequest.BodyPublishers.ofString(
-                            body != null ? body : "", StandardCharsets.UTF_8));
+                    requestBuilder.POST(HttpRequest.BodyPublishers.ofByteArray(requestBody));
                     break;
                 case "PUT":
-                    requestBuilder.PUT(HttpRequest.BodyPublishers.ofString(
-                            body != null ? body : "", StandardCharsets.UTF_8));
+                    requestBuilder.PUT(HttpRequest.BodyPublishers.ofByteArray(requestBody));
                     break;
                 case "DELETE":
-                    requestBuilder.DELETE();
+                    if (requestBody.length > 0) {
+                        requestBuilder.method("DELETE", HttpRequest.BodyPublishers.ofByteArray(requestBody));
+                    } else {
+                        requestBuilder.DELETE();
+                    }
                     break;
                 case "PATCH":
-                    requestBuilder.method("PATCH", HttpRequest.BodyPublishers.ofString(
-                            body != null ? body : "", StandardCharsets.UTF_8));
+                    requestBuilder.method("PATCH", HttpRequest.BodyPublishers.ofByteArray(requestBody));
                     break;
                 case "HEAD":
                     requestBuilder.method("HEAD", HttpRequest.BodyPublishers.noBody());
@@ -94,8 +96,7 @@ public class ProxyService {
                     requestBuilder.method("OPTIONS", HttpRequest.BodyPublishers.noBody());
                     break;
                 default:
-                    requestBuilder.method(method, HttpRequest.BodyPublishers.ofString(
-                            body != null ? body : "", StandardCharsets.UTF_8));
+                    requestBuilder.method(method, HttpRequest.BodyPublishers.ofByteArray(requestBody));
             }
 
             HttpResponse<byte[]> response = httpClient.send(
@@ -121,7 +122,7 @@ public class ProxyService {
         }
     }
 
-    public StreamResponse forwardStreamRequest(HttpServletRequest request, String body) {
+    public StreamResponse forwardStreamRequest(HttpServletRequest request, byte[] body) {
         try {
             String targetUrl = getTargetUrl(request);
             HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
@@ -131,9 +132,9 @@ public class ProxyService {
             addHeaders(requestBuilder, request);
 
             String method = request.getMethod().toUpperCase();
+            byte[] requestBody = body != null ? body : new byte[0];
             if ("POST".equals(method) || "PUT".equals(method)) {
-                requestBuilder.method(method, HttpRequest.BodyPublishers.ofString(
-                        body != null ? body : "", StandardCharsets.UTF_8));
+                requestBuilder.method(method, HttpRequest.BodyPublishers.ofByteArray(requestBody));
             } else {
                 requestBuilder.GET();
             }

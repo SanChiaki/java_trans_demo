@@ -36,7 +36,7 @@ public class ProxyController {
     })
     public ResponseEntity<byte[]> proxyRequest(
             HttpServletRequest request,
-            @RequestBody(required = false) String body) {
+            @RequestBody(required = false) byte[] body) {
         return proxyService.forwardRequest(request, body);
     }
 
@@ -48,11 +48,11 @@ public class ProxyController {
     @PostMapping(value = "/stream/**", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter proxyStreamPostRequest(
             HttpServletRequest request,
-            @RequestBody(required = false) String body) {
+            @RequestBody(required = false) byte[] body) {
         return handleStreamRequest(request, body);
     }
 
-    private SseEmitter handleStreamRequest(HttpServletRequest request, String body) {
+    private SseEmitter handleStreamRequest(HttpServletRequest request, byte[] body) {
         SseEmitter emitter = new SseEmitter(300000L); // 5 minutes timeout
 
         executorService.execute(() -> {
