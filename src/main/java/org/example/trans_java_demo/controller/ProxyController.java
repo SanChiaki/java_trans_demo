@@ -34,7 +34,7 @@ public class ProxyController {
             RequestMethod.HEAD,
             RequestMethod.OPTIONS
     })
-    public ResponseEntity<String> proxyRequest(
+    public ResponseEntity<byte[]> proxyRequest(
             HttpServletRequest request,
             @RequestBody(required = false) String body) {
         return proxyService.forwardRequest(request, body);

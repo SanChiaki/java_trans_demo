@@ -58,7 +58,7 @@ public class ProxyService {
         }
     }
 
-    public ResponseEntity<String> forwardRequest(HttpServletRequest request, String body) {
+    public ResponseEntity<byte[]> forwardRequest(HttpServletRequest request, String body) {
         try {
             String targetUrl = getTargetUrl(request);
             HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
@@ -110,16 +110,14 @@ public class ProxyService {
                 }
             });
 
-            String responseBody = new String(response.body(), StandardCharsets.UTF_8);
-
             return ResponseEntity
                     .status(response.statusCode())
                     .headers(responseHeaders)
-                    .body(responseBody);
+                    .body(response.body());
 
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body("Proxy error: " + e.getMessage());
+                    .body(("Proxy error: " + e.getMessage()).getBytes(StandardCharsets.UTF_8));
         }
     }
 
