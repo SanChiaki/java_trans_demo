@@ -4,6 +4,9 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -12,6 +15,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.Enumeration;
@@ -25,10 +29,33 @@ public class ProxyService {
     private final HttpClient httpClient;
 
     public ProxyService() {
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(30))
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .build();
+        try {
+            // 创建信任所有证书的TrustManager
+            TrustManager[] trustAllCerts = new TrustManager[]{
+                new X509TrustManager() {
+                    public X509Certificate[] getAcceptedIssuers() {
+                        return new X509Certificate[0];
+                    }
+                    public void checkClientTrusted(X509Certificate[] certs, String authType) {
+                    }
+                    public void checkServerTrusted(X509Certificate[] certs, String authType) {
+                    }
+                }
+            };
+
+            // 创建SSLContext并初始化
+            SSLContext sslContext = SSLContext.getInstance("TLS");
+            sslContext.init(null, trustAllCerts, new java.security.SecureRandom());
+
+            // 构建HttpClient，关闭SSL校验
+            this.httpClient = HttpClient.newBuilder()
+                    .sslContext(sslContext)
+                    .connectTimeout(Duration.ofSeconds(30))
+                    .followRedirects(HttpClient.Redirect.NORMAL)
+                    .build();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to initialize HttpClient with SSL bypass", e);
+        }
     }
 
     public ResponseEntity<String> forwardRequest(HttpServletRequest request, String body) {
