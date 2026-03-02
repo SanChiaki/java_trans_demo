@@ -78,5 +78,12 @@ curl -N -X POST http://localhost:8080/proxy/stream/chat \
 
 - Spring Boot 3.5.11
 - Java 21
-- WebFlux（用于SSE支持）
-- RestTemplate（用于普通HTTP转发）
+- Java HttpClient（原生，无需额外依赖）
+- SseEmitter（用于SSE流式传输）
+
+## 依赖说明
+
+本项目仅使用最小依赖：
+- `spring-boot-starter-web` - 提供REST API支持
+
+不需要WebFlux或其他响应式编程库，使用Java原生HttpClient实现所有功能。

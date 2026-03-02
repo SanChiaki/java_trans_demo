@@ -2,111 +2,140 @@ package org.example.trans_java_demo.service;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.*;
-import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
-import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.reactive.function.client.WebClientResponseException;
-import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Collections;
 import java.util.Enumeration;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 public class ProxyService {
 
-    private final WebClient webClient;
+    private final HttpClient httpClient;
 
     public ProxyService() {
-        this.webClient = WebClient.builder()
-                .codecs(configurer -> configurer
-                        .defaultCodecs()
-                        .maxInMemorySize(16 * 1024 * 1024)) // 16MB buffer
+        this.httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(30))
+                .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
     }
 
     public ResponseEntity<String> forwardRequest(HttpServletRequest request, String body) {
-        String targetUrl = getTargetUrl(request);
-        HttpHeaders headers = extractHeaders(request);
-        HttpMethod method = HttpMethod.valueOf(request.getMethod());
-
         try {
-            WebClient.RequestBodySpec requestSpec = webClient
-                    .method(method)
-                    .uri(targetUrl)
-                    .headers(h -> h.addAll(headers));
+            String targetUrl = getTargetUrl(request);
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
+                    .uri(URI.create(targetUrl))
+                    .timeout(Duration.ofSeconds(60));
 
-            if (body != null && !body.isEmpty()) {
-                requestSpec.bodyValue(body);
+            addHeaders(requestBuilder, request);
+
+            String method = request.getMethod().toUpperCase();
+            switch (method) {
+                case "GET":
+                    requestBuilder.GET();
+                    break;
+                case "POST":
+                    requestBuilder.POST(HttpRequest.BodyPublishers.ofString(
+                            body != null ? body : "", StandardCharsets.UTF_8));
+                    break;
+                case "PUT":
+                    requestBuilder.PUT(HttpRequest.BodyPublishers.ofString(
+                            body != null ? body : "", StandardCharsets.UTF_8));
+                    break;
+                case "DELETE":
+                    requestBuilder.DELETE();
+                    break;
+                case "PATCH":
+                    requestBuilder.method("PATCH", HttpRequest.BodyPublishers.ofString(
+                            body != null ? body : "", StandardCharsets.UTF_8));
+                    break;
+                case "HEAD":
+                    requestBuilder.method("HEAD", HttpRequest.BodyPublishers.noBody());
+                    break;
+                case "OPTIONS":
+                    requestBuilder.method("OPTIONS", HttpRequest.BodyPublishers.noBody());
+                    break;
+                default:
+                    requestBuilder.method(method, HttpRequest.BodyPublishers.ofString(
+                            body != null ? body : "", StandardCharsets.UTF_8));
             }
 
-            ResponseEntity<byte[]> response = requestSpec
-                    .retrieve()
-                    .toEntity(byte[].class)
-                    .block();
-
-            if (response == null) {
-                return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                        .body("No response from target server");
-            }
+            HttpResponse<byte[]> response = httpClient.send(
+                    requestBuilder.build(),
+                    HttpResponse.BodyHandlers.ofByteArray()
+            );
 
             HttpHeaders responseHeaders = new HttpHeaders();
-            responseHeaders.putAll(response.getHeaders());
-            responseHeaders.remove(HttpHeaders.TRANSFER_ENCODING);
-            responseHeaders.remove(HttpHeaders.CONNECTION);
+            response.headers().map().forEach((key, values) -> {
+                if (shouldForwardResponseHeader(key)) {
+                    responseHeaders.put(key, values);
+                }
+            });
 
-            byte[] responseBody = response.getBody();
-            String responseString = responseBody != null ? new String(responseBody) : "";
+            String responseBody = new String(response.body(), StandardCharsets.UTF_8);
 
             return ResponseEntity
-                    .status(response.getStatusCode())
+                    .status(response.statusCode())
                     .headers(responseHeaders)
-                    .body(responseString);
+                    .body(responseBody);
 
-        } catch (WebClientResponseException e) {
-            HttpHeaders errorHeaders = new HttpHeaders();
-            errorHeaders.putAll(e.getHeaders());
-            errorHeaders.remove(HttpHeaders.TRANSFER_ENCODING);
-            errorHeaders.remove(HttpHeaders.CONNECTION);
-
-            return ResponseEntity.status(e.getStatusCode())
-                    .headers(errorHeaders)
-                    .body(e.getResponseBodyAsString());
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                     .body("Proxy error: " + e.getMessage());
         }
     }
 
-    public Flux<ServerSentEvent<String>> forwardStreamRequest(HttpServletRequest request) {
-        return forwardStreamRequest(request, null);
+    public StreamResponse forwardStreamRequest(HttpServletRequest request, String body) {
+        try {
+            String targetUrl = getTargetUrl(request);
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
+                    .uri(URI.create(targetUrl))
+                    .timeout(Duration.ofMinutes(5));
+
+            addHeaders(requestBuilder, request);
+
+            String method = request.getMethod().toUpperCase();
+            if ("POST".equals(method) || "PUT".equals(method)) {
+                requestBuilder.method(method, HttpRequest.BodyPublishers.ofString(
+                        body != null ? body : "", StandardCharsets.UTF_8));
+            } else {
+                requestBuilder.GET();
+            }
+
+            HttpResponse<java.io.InputStream> response = httpClient.send(
+                    requestBuilder.build(),
+                    HttpResponse.BodyHandlers.ofInputStream()
+            );
+
+            return new StreamResponse(response.body(), response.statusCode());
+
+        } catch (Exception e) {
+            throw new RuntimeException("Stream proxy error: " + e.getMessage(), e);
+        }
     }
 
-    public Flux<ServerSentEvent<String>> forwardStreamRequest(HttpServletRequest request, String body) {
-        String targetUrl = getTargetUrl(request);
-        HttpHeaders headers = extractHeaders(request);
-
-        WebClient.RequestBodySpec requestSpec = webClient
-                .method(HttpMethod.valueOf(request.getMethod()))
-                .uri(targetUrl)
-                .headers(h -> h.addAll(headers));
-
-        if (body != null && !body.isEmpty()) {
-            requestSpec.bodyValue(body);
+    private void addHeaders(HttpRequest.Builder requestBuilder, HttpServletRequest request) {
+        Enumeration<String> headerNames = request.getHeaderNames();
+        while (headerNames.hasMoreElements()) {
+            String headerName = headerNames.nextElement();
+            if (shouldForwardHeader(headerName)) {
+                Enumeration<String> headerValues = request.getHeaders(headerName);
+                while (headerValues.hasMoreElements()) {
+                    requestBuilder.header(headerName, headerValues.nextElement());
+                }
+            }
         }
-
-        return requestSpec
-                .retrieve()
-                .bodyToFlux(String.class)
-                .map(data -> ServerSentEvent.<String>builder()
-                        .data(data)
-                        .build())
-                .onErrorResume(e -> Flux.just(
-                        ServerSentEvent.<String>builder()
-                                .event("error")
-                                .data("Stream error: " + e.getMessage())
-                                .build()
-                ));
     }
 
     private String getTargetUrl(HttpServletRequest request) {
@@ -123,25 +152,36 @@ public class ProxyService {
         return targetUrl;
     }
 
-    private HttpHeaders extractHeaders(HttpServletRequest request) {
-        HttpHeaders headers = new HttpHeaders();
-        Enumeration<String> headerNames = request.getHeaderNames();
-
-        while (headerNames.hasMoreElements()) {
-            String headerName = headerNames.nextElement();
-
-            if (shouldForwardHeader(headerName)) {
-                headers.put(headerName, Collections.list(request.getHeaders(headerName)));
-            }
-        }
-
-        return headers;
-    }
-
     private boolean shouldForwardHeader(String headerName) {
         String lowerName = headerName.toLowerCase();
         return !lowerName.equals("host")
                 && !lowerName.equals("x-target-url")
-                && !lowerName.startsWith("x-forwarded");
+                && !lowerName.startsWith("x-forwarded")
+                && !lowerName.equals("content-length");
+    }
+
+    private boolean shouldForwardResponseHeader(String headerName) {
+        String lowerName = headerName.toLowerCase();
+        return !lowerName.equals("transfer-encoding")
+                && !lowerName.equals("connection");
+    }
+
+    public static class StreamResponse {
+        private final java.io.InputStream inputStream;
+        private final int statusCode;
+
+        public StreamResponse(java.io.InputStream inputStream, int statusCode) {
+            this.inputStream = inputStream;
+            this.statusCode = statusCode;
+        }
+
+        public java.io.InputStream getInputStream() {
+            return inputStream;
+        }
+
+        public int getStatusCode() {
+            return statusCode;
+        }
     }
 }
+
