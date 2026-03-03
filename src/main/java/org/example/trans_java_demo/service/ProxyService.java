@@ -59,13 +59,17 @@ public class ProxyService {
     }
 
     public ResponseEntity<byte[]> forwardRequest(HttpServletRequest request, byte[] body) {
+        return forwardRequest(request, body, null);
+    }
+
+    public ResponseEntity<byte[]> forwardRequest(HttpServletRequest request, byte[] body, String overrideContentType) {
         try {
             String targetUrl = getTargetUrl(request);
             HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                     .uri(URI.create(targetUrl))
                     .timeout(Duration.ofSeconds(60));
 
-            addHeaders(requestBuilder, request);
+            addHeaders(requestBuilder, request, overrideContentType);
 
             String method = request.getMethod().toUpperCase();
             byte[] requestBody = body != null ? body : new byte[0];
@@ -151,17 +155,29 @@ public class ProxyService {
         }
     }
 
-    private void addHeaders(HttpRequest.Builder requestBuilder, HttpServletRequest request) {
+    private void addHeaders(HttpRequest.Builder requestBuilder, HttpServletRequest request, String overrideContentType) {
         Enumeration<String> headerNames = request.getHeaderNames();
         while (headerNames.hasMoreElements()) {
             String headerName = headerNames.nextElement();
             if (shouldForwardHeader(headerName)) {
+                // 如果是 Content-Type 且有覆盖值，则使用覆盖值
+                if ("content-type".equalsIgnoreCase(headerName) && overrideContentType != null) {
+                    continue; // 跳过原始的，后面单独添加
+                }
                 Enumeration<String> headerValues = request.getHeaders(headerName);
                 while (headerValues.hasMoreElements()) {
                     requestBuilder.header(headerName, headerValues.nextElement());
                 }
             }
         }
+        // 添加覆盖的 Content-Type
+        if (overrideContentType != null) {
+            requestBuilder.header("Content-Type", overrideContentType);
+        }
+    }
+
+    private void addHeaders(HttpRequest.Builder requestBuilder, HttpServletRequest request) {
+        addHeaders(requestBuilder, request, null);
     }
 
     private String getTargetUrl(HttpServletRequest request) {

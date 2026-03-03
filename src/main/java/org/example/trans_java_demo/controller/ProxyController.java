@@ -2,6 +2,7 @@ package org.example.trans_java_demo.controller;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.example.trans_java_demo.service.ProxyService;
+import org.example.trans_java_demo.util.MultipartRequestHandler;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -35,8 +36,21 @@ public class ProxyController {
             RequestMethod.OPTIONS
     })
     public ResponseEntity<byte[]> proxyRequest(HttpServletRequest request) throws Exception {
-        byte[] body = request.getInputStream().readAllBytes();
-        return proxyService.forwardRequest(request, body);
+        byte[] body;
+
+        // 针对 multipart 请求特殊处理
+        if (MultipartRequestHandler.isMultipartRequest(request)) {
+            // 重建 multipart body 并获取新的 boundary
+            MultipartRequestHandler.MultipartBody multipartBody =
+                    MultipartRequestHandler.rebuildMultipartBodyWithBoundary(request);
+            body = multipartBody.getBody();
+            // 将新的 Content-Type（包含 boundary）传递给 ProxyService
+            return proxyService.forwardRequest(request, body, multipartBody.getContentType());
+        } else {
+            // 其他类型请求直接读取 InputStream
+            body = request.getInputStream().readAllBytes();
+            return proxyService.forwardRequest(request, body);
+        }
     }
 
     @GetMapping(value = "/stream/**", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -46,7 +60,15 @@ public class ProxyController {
 
     @PostMapping(value = "/stream/**", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter proxyStreamPostRequest(HttpServletRequest request) throws Exception {
-        byte[] body = request.getInputStream().readAllBytes();
+        byte[] body;
+
+        // 针对 multipart 请求特殊处理
+        if (MultipartRequestHandler.isMultipartRequest(request)) {
+            body = MultipartRequestHandler.rebuildMultipartBody(request);
+        } else {
+            body = request.getInputStream().readAllBytes();
+        }
+
         return handleStreamRequest(request, body);
     }
 

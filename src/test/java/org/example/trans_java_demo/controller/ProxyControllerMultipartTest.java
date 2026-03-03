@@ -4,14 +4,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
-import java.nio.charset.StandardCharsets;
-
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
@@ -23,22 +21,24 @@ public class ProxyControllerMultipartTest {
 
     @Test
     public void testMultipartFormData() throws Exception {
-        // 手动构造 multipart 请求体
-        String boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW";
-        String multipartBody = "--" + boundary + "\r\n" +
-                "Content-Disposition: form-data; name=\"file\"; filename=\"test.txt\"\r\n" +
-                "Content-Type: text/plain\r\n" +
-                "\r\n" +
-                "Hello World\r\n" +
-                "--" + boundary + "\r\n" +
-                "Content-Disposition: form-data; name=\"field\"\r\n" +
-                "\r\n" +
-                "field value\r\n" +
-                "--" + boundary + "--\r\n";
+        // 使用 MockMultipartFile 创建文件
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "test.txt",
+                "text/plain",
+                "Hello World".getBytes()
+        );
 
-        MvcResult result = mockMvc.perform(post("/proxy/test")
-                        .contentType("multipart/form-data; boundary=" + boundary)
-                        .content(multipartBody.getBytes(StandardCharsets.UTF_8))
+        MockMultipartFile field = new MockMultipartFile(
+                "field",
+                "",
+                "text/plain",
+                "field value".getBytes()
+        );
+
+        MvcResult result = mockMvc.perform(multipart("/proxy/test")
+                        .file(file)
+                        .file(field)
                         .header("X-Target-URL", "https://httpbin.org/post"))
                 .andExpect(status().isOk())
                 .andReturn();
