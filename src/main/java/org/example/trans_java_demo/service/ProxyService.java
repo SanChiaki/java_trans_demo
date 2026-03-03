@@ -197,6 +197,7 @@ public class ProxyService {
     private boolean shouldForwardHeader(String headerName) {
         String lowerName = headerName.toLowerCase();
         return !lowerName.equals("host")
+                && !lowerName.equals("cookie")
                 && !lowerName.equals("connection")
                 && !lowerName.equals("content-length")
                 && !lowerName.equals("expect")
