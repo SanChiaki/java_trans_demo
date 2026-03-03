@@ -3,15 +3,27 @@ package org.example.trans_java_demo.config;
 import jakarta.servlet.*;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletRequestWrapper;
+import org.springframework.boot.autoconfigure.web.servlet.MultipartProperties;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.Ordered;
+import org.springframework.web.multipart.MultipartResolver;
 
 import java.io.*;
 
 @Configuration
 public class WebConfig {
+
+    /**
+     * 禁用 Spring 的 MultipartResolver
+     * 通过不定义 multipartResolver bean，Spring 将不会自动解析 multipart 请求
+     */
+    @Bean(name = "multipartResolver")
+    public MultipartResolver multipartResolver() {
+        // 返回一个什么都不做的 MultipartResolver
+        return new NoOpMultipartResolver();
+    }
 
     /**
      * 注册请求 body 缓存 Filter
@@ -24,6 +36,28 @@ public class WebConfig {
         registrationBean.addUrlPatterns("/proxy/*");
         registrationBean.setOrder(Ordered.HIGHEST_PRECEDENCE);
         return registrationBean;
+    }
+
+    /**
+     * 什么都不做的 MultipartResolver
+     * 让 Spring 认为没有 multipart 需要解析
+     */
+    public static class NoOpMultipartResolver implements MultipartResolver {
+        @Override
+        public boolean isMultipart(HttpServletRequest request) {
+            // 始终返回 false，告诉 Spring 这不是 multipart 请求
+            return false;
+        }
+
+        @Override
+        public org.springframework.web.multipart.MultipartHttpServletRequest resolveMultipart(HttpServletRequest request) {
+            throw new UnsupportedOperationException("Multipart resolution is disabled");
+        }
+
+        @Override
+        public void cleanupMultipart(org.springframework.web.multipart.MultipartHttpServletRequest request) {
+            // 不需要清理
+        }
     }
 
     /**
