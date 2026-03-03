@@ -34,9 +34,8 @@ public class ProxyController {
             RequestMethod.HEAD,
             RequestMethod.OPTIONS
     })
-    public ResponseEntity<byte[]> proxyRequest(
-            HttpServletRequest request,
-            @RequestBody(required = false) byte[] body) {
+    public ResponseEntity<byte[]> proxyRequest(HttpServletRequest request) throws Exception {
+        byte[] body = request.getInputStream().readAllBytes();
         return proxyService.forwardRequest(request, body);
     }
 
@@ -46,9 +45,8 @@ public class ProxyController {
     }
 
     @PostMapping(value = "/stream/**", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter proxyStreamPostRequest(
-            HttpServletRequest request,
-            @RequestBody(required = false) byte[] body) {
+    public SseEmitter proxyStreamPostRequest(HttpServletRequest request) throws Exception {
+        byte[] body = request.getInputStream().readAllBytes();
         return handleStreamRequest(request, body);
     }
 
