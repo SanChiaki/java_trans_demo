@@ -7,9 +7,6 @@ import org.springframework.stereotype.Service;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -17,11 +14,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
-import java.util.Collections;
 import java.util.Enumeration;
-import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
 @Service
 public class ProxyService {
@@ -127,13 +120,17 @@ public class ProxyService {
     }
 
     public StreamResponse forwardStreamRequest(HttpServletRequest request, byte[] body) {
+        return forwardStreamRequest(request, body, null);
+    }
+
+    public StreamResponse forwardStreamRequest(HttpServletRequest request, byte[] body, String overrideContentType) {
         try {
             String targetUrl = getTargetUrl(request);
             HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                     .uri(URI.create(targetUrl))
                     .timeout(Duration.ofMinutes(5));
 
-            addHeaders(requestBuilder, request);
+            addHeaders(requestBuilder, request, overrideContentType);
 
             String method = request.getMethod().toUpperCase();
             byte[] requestBody = body != null ? body : new byte[0];
@@ -148,7 +145,14 @@ public class ProxyService {
                     HttpResponse.BodyHandlers.ofInputStream()
             );
 
-            return new StreamResponse(response.body(), response.statusCode());
+            HttpHeaders responseHeaders = new HttpHeaders();
+            response.headers().map().forEach((key, values) -> {
+                if (shouldForwardResponseHeader(key)) {
+                    responseHeaders.put(key, values);
+                }
+            });
+
+            return new StreamResponse(response.body(), response.statusCode(), responseHeaders);
 
         } catch (Exception e) {
             throw new RuntimeException("Stream proxy error: " + e.getMessage(), e);
@@ -216,10 +220,12 @@ public class ProxyService {
     public static class StreamResponse {
         private final java.io.InputStream inputStream;
         private final int statusCode;
+        private final HttpHeaders headers;
 
-        public StreamResponse(java.io.InputStream inputStream, int statusCode) {
+        public StreamResponse(java.io.InputStream inputStream, int statusCode, HttpHeaders headers) {
             this.inputStream = inputStream;
             this.statusCode = statusCode;
+            this.headers = headers;
         }
 
         public java.io.InputStream getInputStream() {
@@ -229,6 +235,9 @@ public class ProxyService {
         public int getStatusCode() {
             return statusCode;
         }
+
+        public HttpHeaders getHeaders() {
+            return headers;
+        }
     }
 }
-
