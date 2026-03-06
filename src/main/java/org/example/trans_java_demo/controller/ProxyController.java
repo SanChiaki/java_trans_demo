@@ -9,7 +9,11 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 @RestController
 @RequestMapping("/proxy")
@@ -79,20 +83,30 @@ public class ProxyController {
         try {
             ProxyService.StreamResponse streamResponse =
                     proxyService.forwardStreamRequest(request, body, overrideContentType);
+            boolean isSseResponse = isSseResponse(streamResponse.getHeaders());
 
             StreamingResponseBody responseBody = outputStream -> {
                 try (var inputStream = streamResponse.getInputStream()) {
-                    byte[] buffer = new byte[8192];
-                    int bytesRead;
-                    while ((bytesRead = inputStream.read(buffer)) != -1) {
-                        outputStream.write(buffer, 0, bytesRead);
-                        outputStream.flush();
+                    if (isSseResponse) {
+                        writeSseEventByEvent(inputStream, outputStream);
+                    } else {
+                        byte[] buffer = new byte[8192];
+                        int bytesRead;
+                        while ((bytesRead = inputStream.read(buffer)) != -1) {
+                            outputStream.write(buffer, 0, bytesRead);
+                            outputStream.flush();
+                        }
                     }
                 }
             };
 
             HttpHeaders headers = new HttpHeaders();
             headers.putAll(streamResponse.getHeaders());
+            if (isSseResponse) {
+                headers.remove(HttpHeaders.CONTENT_LENGTH);
+                headers.setCacheControl("no-cache");
+                headers.set("X-Accel-Buffering", "no");
+            }
 
             return ResponseEntity
                     .status(streamResponse.getStatusCode())
@@ -102,5 +116,92 @@ public class ProxyController {
             byte[] errorBody = ("Proxy stream error: " + e.getMessage()).getBytes(StandardCharsets.UTF_8);
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(outputStream -> outputStream.write(errorBody));
         }
+    }
+
+    private boolean isSseResponse(HttpHeaders headers) {
+        String contentType = headers.getFirst(HttpHeaders.CONTENT_TYPE);
+        return contentType != null && contentType.toLowerCase().startsWith("text/event-stream");
+    }
+
+    private void writeSseEventByEvent(InputStream inputStream, OutputStream outputStream) throws IOException {
+        byte[] readBuffer = new byte[2048];
+        byte[] pending = new byte[0];
+        int bytesRead;
+
+        while ((bytesRead = inputStream.read(readBuffer)) != -1) {
+            pending = appendBytes(pending, readBuffer, bytesRead);
+
+            int delimiterEndIndex;
+            while ((delimiterEndIndex = findSseEventDelimiterEndIndex(pending)) != -1) {
+                outputStream.write(pending, 0, delimiterEndIndex);
+                outputStream.flush();
+                pending = Arrays.copyOfRange(pending, delimiterEndIndex, pending.length);
+            }
+        }
+
+        if (pending.length > 0) {
+            outputStream.write(pending);
+            if (!endsWithSseDelimiter(pending)) {
+                writeMissingSseDelimiterSuffix(outputStream, pending);
+            }
+            outputStream.flush();
+        }
+    }
+
+    private byte[] appendBytes(byte[] source, byte[] append, int appendLength) {
+        byte[] merged = Arrays.copyOf(source, source.length + appendLength);
+        System.arraycopy(append, 0, merged, source.length, appendLength);
+        return merged;
+    }
+
+    private int findSseEventDelimiterEndIndex(byte[] data) {
+        for (int i = 0; i < data.length - 1; i++) {
+            if (data[i] == '\n' && data[i + 1] == '\n') {
+                return i + 2;
+            }
+            if (i + 3 < data.length
+                    && data[i] == '\r'
+                    && data[i + 1] == '\n'
+                    && data[i + 2] == '\r'
+                    && data[i + 3] == '\n') {
+                return i + 4;
+            }
+            if (data[i] == '\r' && data[i + 1] == '\r') {
+                return i + 2;
+            }
+        }
+        return -1;
+    }
+
+    private boolean endsWithSseDelimiter(byte[] data) {
+        if (data.length >= 2 && data[data.length - 2] == '\n' && data[data.length - 1] == '\n') {
+            return true;
+        }
+        if (data.length >= 4
+                && data[data.length - 4] == '\r'
+                && data[data.length - 3] == '\n'
+                && data[data.length - 2] == '\r'
+                && data[data.length - 1] == '\n') {
+            return true;
+        }
+        return data.length >= 2 && data[data.length - 2] == '\r' && data[data.length - 1] == '\r';
+    }
+
+    private void writeMissingSseDelimiterSuffix(OutputStream outputStream, byte[] data) throws IOException {
+        if (data.length >= 2 && data[data.length - 2] == '\r' && data[data.length - 1] == '\n') {
+            outputStream.write('\r');
+            outputStream.write('\n');
+            return;
+        }
+        if (data.length >= 1 && data[data.length - 1] == '\n') {
+            outputStream.write('\n');
+            return;
+        }
+        if (data.length >= 1 && data[data.length - 1] == '\r') {
+            outputStream.write('\r');
+            return;
+        }
+        outputStream.write('\n');
+        outputStream.write('\n');
     }
 }

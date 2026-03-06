@@ -44,4 +44,24 @@ public class ProxyControllerSseRawPassThroughTest {
                 "SSE Content-Type should be forwarded"
         );
     }
+
+    @Test
+    public void shouldAppendMissingTailDelimiterForSse() throws Exception {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create("http://localhost:" + port + "/proxy/stream/raw"))
+                .timeout(Duration.ofSeconds(15))
+                .header("X-Target-URL", "http://localhost:" + port + "/test/sse/raw/missing-tail-delimiter")
+                .GET()
+                .build();
+
+        HttpResponse<String> response = HttpClient.newHttpClient()
+                .send(request, HttpResponse.BodyHandlers.ofString());
+
+        assertEquals(200, response.statusCode(), "SSE proxy status should match upstream");
+        assertEquals(
+                "data: hello\n\ndata: world\n\n",
+                response.body(),
+                "Proxy should ensure the final SSE event is terminated by a blank line"
+        );
+    }
 }
